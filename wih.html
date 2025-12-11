@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>印章工坊 v4.0 - 终极版</title>
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.css">
+    <style>
+        :root {
+            --bg-main: #333333; /* 桌面背景改深色，衬托白纸 */
+            --panel-bg: #fff4e0;
+            --border-color: #2d1b00;
+            --btn-yellow: #ffd93f;
+            --btn-green: #76c442;
+            --shadow-offset: 4px;
+        }
+
+        body {
+            margin: 0; overflow: hidden; font-family: 'Press Start 2P', cursive;
+            display: flex; height: 100vh; background-color: var(--bg-main);
+            padding: 20px; box-sizing: border-box; gap: 20px;
+        }
+
+        .pixel-border {
+            border: 4px solid var(--border-color);
+            box-shadow: var(--shadow-offset) var(--shadow-offset) 0 var(--border-color);
+            border-radius: 16px;
+        }
+
+        /* 左侧 3D 区域 */
+        #crt-container {
+            flex: 1; position: relative; background-color: #555; /* 3D 画布背景 */
+            overflow: hidden; cursor: none;
+            box-shadow: inset 0 0 40px rgba(0,0,0,0.5);
+        }
+        
+        /* 辅助准心 */
+        #crosshair {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            width: 20px; height: 20px; pointer-events: none; z-index: 1; opacity: 0.3;
+        }
+        #crosshair::before, #crosshair::after {
+            content: ''; position: absolute; background: #fff;
+        }
+        #crosshair::before { top: 9px; left: 0; width: 20px; height: 2px; }
+        #crosshair::after { top: 0; left: 9px; width: 2px; height: 20px; }
+
+        #canvas-container { width: 100%; height: 100%; }
+
+        /* 右侧面板 */
+        #sidebar {
+            width: 320px; background: var(--panel-bg); padding: 20px;
+            display: flex; flex-direction: column; gap: 20px; z-index: 10;
+        }
+
+        h1 { margin: 0; font-size: 16px; text-align: center; color: var(--border-color); line-height: 1.5; }
+
+        .panel-section { display: flex; flex-direction: column; gap: 10px; }
+        label { font-size: 10px; color: #666; text-transform: uppercase; letter-spacing: 1px; }
+
+        /* 上传与预览 */
+        .upload-box {
+            border: 4px dashed var(--border-color); background: #e8e0d0; min-height: 100px;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            cursor: pointer; border-radius: 12px; transition: 0.2s;
+        }
+        .upload-box:hover { background: #dcd4c0; transform: scale(0.98); }
+        
+        #preview-container {
+            display: none; width: 100%; aspect-ratio: 1;
+            background-image: linear-gradient(45deg, #ccc 25%, transparent 25%), linear-gradient(-45deg, #ccc 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #ccc 75%), linear-gradient(-45deg, transparent 75%, #ccc 75%);
+            background-size: 20px 20px; background-color: white; 
+            border: 4px solid var(--border-color); border-radius: 8px; overflow: hidden;
+        }
+        #preview-img { width: 100%; height: 100%; object-fit: contain; }
+
+        /* 控件 */
+        .control-row { display: flex; align-items: center; justify-content: space-between; font-size: 10px; }
+        input[type="range"] { -webkit-appearance: none; flex: 1; margin-left: 10px; height: 10px; background: var(--border-color); border-radius: 5px; }
+        input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: 20px; height: 20px; background: var(--btn-yellow); border: 3px solid var(--border-color); cursor: pointer; border-radius: 2px; }
+        
+        /* 颜色球 */
+        .color-palette { display: flex; gap: 10px; justify-content: space-between; }
+        .color-swatch {
+            width: 40px; height: 40px; border: 4px solid var(--border-color); border-radius: 8px; cursor: pointer;
+            transition: transform 0.1s;
+        }
+        .color-swatch.active { transform: scale(1.1); box-shadow: 0 0 0 2px #fff, 0 0 0 4px var(--border-color); }
+
+        /* 按钮 */
+        .btn {
+            border: 4px solid var(--border-color); padding: 15px; font-family: inherit; font-size: 12px; cursor: pointer;
+            border-radius: 12px; box-shadow: 4px 4px 0 var(--border-color); background: var(--btn-green); color: var(--border-color);
+            text-align: center;
+        }
+        .btn:active { transform: translate(4px, 4px); box-shadow: none; }
+        .btn-yellow { background: var(--btn-yellow); }
+
+        /* 裁剪弹窗 */
+        #crop-modal {
+            display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.85); z-index: 100; align-items: center; justify-content: center;
+        }
+        #crop-wrapper {
+            background: var(--panel-bg); padding: 20px; width: 90%; max-width: 600px;
+            border: 4px solid var(--border-color); border-radius: 20px;
+            display: flex; flex-direction: column; gap: 15px;
+        }
+        .img-container { height: 400px; background: #333; overflow: hidden; border: 4px solid var(--border-color); }
+        
+        /* 鼠标手套 */
+        #pixel-cursor {
+            position: absolute; pointer-events: none; z-index: 200; width: 40px; height: 40px;
+            background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path fill="%23fff" d="M2 12h2v2h2v2h2v-2h2v2h2v-2h2v2h2v-2h2v-2h2v2h2v-4h-2v-2h-2v-2h-2v-2h-2V2h-4v2H8v2H6v2H4v2H2v6z"/><path fill="%23000" d="M8 4h4v2h2v2h2v2h2v2h2v-2h2v4h-2v-2h-2v2h-2v-2h-2v2h-2v-2h-2v2H8v-2H6v-2H4v-2H2v-6h2v2h2v2h2V4z"/></svg>');
+            background-size: contain; transform: translate(-10%, -10%); display: none;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="pixel-cursor"></div>
+
+    <div id="crt-container" class="pixel-border">
+        <div id="crosshair"></div>
+        <div id="canvas-container"></div>
+    </div>
+
+    <div id="sidebar" class="pixel-border">
+        <h1>STAMP MAKER<br>ULTIMATE</h1>
+
+        <div class="panel-section">
+            <label>1. Image Source</label>
+            <label for="file-input" class="upload-box" id="upload-label">
+                <span style="font-size:24px">📂</span>
+                <span>OPEN IMAGE</span>
+            </label>
+            <input type="file" id="file-input" accept="image/*" style="display:none">
+            <div id="preview-container">
+                <img id="preview-img">
+            </div>
+        </div>
+
+        <div class="panel-section">
+            <label>2. Adjustment</label>
+            <div class="control-row">
+                <span>INVERT (反转)</span>
+                <input type="checkbox" id="invert-check" style="width:20px; height:20px; accent-color: var(--border-color);">
+            </div>
+            <div class="control-row">
+                <span>THRESHOLD (阈值)</span>
+                <input type="range" id="threshold-slider" min="0" max="255" value="128">
+            </div>
+        </div>
+
+        <div class="panel-section">
+            <label>3. Ink Color</label>
+            <div class="color-palette">
+                <div class="color-swatch active" style="background: #d63031;" data-color="#d63031"></div>
+                <div class="color-swatch" style="background: #0984e3;" data-color="#0984e3"></div>
+                <div class="color-swatch" style="background: #2d3436;" data-color="#2d3436"></div>
+                <div class="color-swatch" style="background: #fdcb6e;" data-color="#fdcb6e"></div>
+            </div>
+        </div>
+
+        <div class="panel-section" style="margin-top:auto">
+            <button id="clear-btn" class="btn btn-yellow">CLEAR PAPER</button>
+            <button id="save-btn" class="btn">SAVE ART</button>
+        </div>
+    </div>
+
+    <div id="crop-modal">
+        <div id="crop-wrapper">
+            <div class="img-container">
+                <img id="crop-img" style="max-width: 100%;">
+            </div>
+            <button id="crop-confirm" class="btn">✅ CONFIRM CROP</button>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.js"></script>
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+            }
+        }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+        // --- 全局变量 ---
+        let currentInkColor = '#d63031';
+        let cropper = null;
+        let originalCroppedCanvas = null; 
+        let processedTextureCanvas = null; 
+        
+        // --- 1. 场景初始化 ---
+        const container = document.getElementById('canvas-container');
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x444444); // 深色桌面背景
+
+        // 透视相机，但角度固定
+        const camera = new THREE.PerspectiveCamera(40, container.offsetWidth / container.offsetHeight, 0.1, 100);
+        camera.position.set(0, 15, 0); // 垂直正上方
+        camera.lookAt(0, 0, 0);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+        renderer.setSize(container.offsetWidth, container.offsetHeight);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        container.appendChild(renderer.domElement);
+
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
+        scene.add(ambientLight);
+        const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        dirLight.position.set(5, 15, 5);
+        dirLight.castShadow = true;
+        dirLight.shadow.mapSize.set(2048, 2048);
+        scene.add(dirLight);
+
+        // --- 2. 纸张 (固定大小的白纸) ---
+        const PAPER_RES = 2048; 
+        const paperCanvas = document.createElement('canvas');
+        paperCanvas.width = PAPER_RES; paperCanvas.height = PAPER_RES;
+        const pCtx = paperCanvas.getContext('2d');
+        
+        function clearPaper() {
+            pCtx.fillStyle = '#ffffff'; // 纯白
+            pCtx.fillRect(0, 0, PAPER_RES, PAPER_RES);
+            // 极微弱的纸张颗粒，避免纯白太死板
+            pCtx.fillStyle = 'rgba(0,0,0,0.01)';
+            for(let i=0; i<1000; i++) {
+                pCtx.fillRect(Math.random()*PAPER_RES, Math.random()*PAPER_RES, 2, 2);
+            }
+            if(paperTexture) paperTexture.needsUpdate = true;
+        }
+
+        const paperTexture = new THREE.CanvasTexture(paperCanvas);
+        paperTexture.minFilter = THREE.LinearFilter;
+        
+        // 创建纸张模型：固定大小 8x8
+        const paperMesh = new THREE.Mesh(
+            new THREE.PlaneGeometry(8, 8), 
+            new THREE.MeshStandardMaterial({ map: paperTexture, roughness: 0.8, metalness: 0 })
+        );
+        paperMesh.rotation.x = -Math.PI / 2;
+        paperMesh.receiveShadow = true;
+        scene.add(paperMesh);
+
+        // 给纸张加一个很薄的底板，模拟厚度和阴影
+        const paperBase = new THREE.Mesh(
+            new THREE.PlaneGeometry(8.2, 8.2),
+            new THREE.MeshBasicMaterial({ color: 0x222222 }) // 黑色边框/阴影效果
+        );
+        paperBase.rotation.x = -Math.PI / 2;
+        paperBase.position.y = -0.02;
+        scene.add(paperBase);
+
+        // --- 3. 印章模型 ---
+        const stampGroup = new THREE.Group();
+        scene.add(stampGroup);
+
+        const handleMesh = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.5, 0.5, 1.5, 32),
+            new THREE.MeshStandardMaterial({ color: 0x8b4513 })
+        );
+        handleMesh.position.y = 0.75;
+        handleMesh.castShadow = true;
+        stampGroup.add(handleMesh);
+
+        const baseMesh = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.8, 0.8, 0.3, 32),
+            new THREE.MeshStandardMaterial({ color: 0x555555 })
+        );
+        baseMesh.position.y = 0.15;
+        baseMesh.castShadow = true;
+        stampGroup.add(baseMesh);
+
+        const faceGeo = new THREE.PlaneGeometry(1.2, 1.2);
+        const faceMat = new THREE.MeshStandardMaterial({
+            color: new THREE.Color(currentInkColor),
+            transparent: true, opacity: 1, side: THREE.DoubleSide, roughness: 0.8
+        });
+        const faceMesh = new THREE.Mesh(faceGeo, faceMat);
+        faceMesh.rotation.x = Math.PI / 2; 
+        faceMesh.position.y = 0.005; 
+        stampGroup.add(faceMesh);
+        stampGroup.visible = false;
+
+        // --- 4. 图像处理 ---
+        function processImage() {
+            if (!originalCroppedCanvas) return;
+            const width = 512; const height = 512;
+            processedTextureCanvas = document.createElement('canvas');
+            processedTextureCanvas.width = width; processedTextureCanvas.height = height;
+            const ctx = processedTextureCanvas.getContext('2d');
+            ctx.drawImage(originalCroppedCanvas, 0, 0, width, height);
+            
+            const imgData = ctx.getImageData(0, 0, width, height);
+            const data = imgData.data;
+            const threshold = parseInt(document.getElementById('threshold-slider').value);
+            const invert = document.getElementById('invert-check').checked;
+
+            for (let i = 0; i < data.length; i += 4) {
+                const avg = (data[i] + data[i+1] + data[i+2]) / 3;
+                let isPattern = avg < threshold; 
+                if (invert) isPattern = !isPattern;
+                if (isPattern) {
+                    data[i] = 255; data[i+1] = 255; data[i+2] = 255; data[i+3] = 255; 
+                } else {
+                    data[i+3] = 0; 
+                }
+            }
+            ctx.putImageData(imgData, 0, 0);
+
+            const texture = new THREE.CanvasTexture(processedTextureCanvas);
+            texture.minFilter = THREE.LinearFilter;
+            texture.magFilter = THREE.NearestFilter; 
+            
+            faceMat.map = texture;
+            faceMat.alphaMap = texture; 
+            faceMat.color.set(currentInkColor);
+            faceMat.needsUpdate = true;
+            document.getElementById('preview-img').src = processedTextureCanvas.toDataURL();
+        }
+
+        document.getElementById('threshold-slider').addEventListener('input', processImage);
+        document.getElementById('invert-check').addEventListener('change', processImage);
+
+        // --- 5. 交互：鼠标跟随与盖章 ---
+        const raycaster = new THREE.Raycaster();
+        const mouse = new THREE.Vector2();
+        let currentIntersect = null;
+
+        document.getElementById('crt-container').addEventListener('mousemove', (e) => {
+            const rect = renderer.domElement.getBoundingClientRect();
+            mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+            mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+            
+            const cursor = document.getElementById('pixel-cursor');
+            cursor.style.display = 'block';
+            cursor.style.left = e.clientX + 'px';
+            cursor.style.top = e.clientY + 'px';
+
+            raycaster.setFromCamera(mouse, camera);
+            const intersects = raycaster.intersectObject(paperMesh);
+
+            if (intersects.length > 0) {
+                currentIntersect = intersects[0];
+                stampGroup.visible = true;
+                stampGroup.position.copy(currentIntersect.point);
+            }
+        });
+
+        document.getElementById('crt-container').addEventListener('mousedown', (e) => {
+            if (!currentIntersect || !processedTextureCanvas) return;
+            stampAnimation();
+            stampOnPaper(currentIntersect.uv);
+        });
+
+        function stampAnimation() {
+            const startY = stampGroup.position.y;
+            let frame = 0;
+            const animateStamp = () => {
+                frame++;
+                if (frame < 5) stampGroup.position.y -= 0.05;
+                else if (frame < 10) stampGroup.position.y += 0.05;
+                else { stampGroup.position.y = startY; return; }
+                requestAnimationFrame(animateStamp);
+            };
+            animateStamp();
+        }
+
+        function stampOnPaper(uv) {
+            const x = uv.x * PAPER_RES;
+            const y = (1 - uv.y) * PAPER_RES;
+            const size = 300; 
+            pCtx.save();
+            pCtx.translate(x, y);
+            pCtx.rotate((Math.random() - 0.5) * 0.1); 
+            
+            const tempC = document.createElement('canvas');
+            tempC.width = size; tempC.height = size;
+            const tCtx = tempC.getContext('2d');
+            tCtx.drawImage(processedTextureCanvas, 0, 0, size, size);
+            tCtx.globalCompositeOperation = 'source-in';
+            tCtx.fillStyle = currentInkColor;
+            tCtx.fillRect(0, 0, size, size);
+
+            pCtx.globalCompositeOperation = 'multiply'; 
+            pCtx.globalAlpha = 0.9; 
+            pCtx.drawImage(tempC, -size/2, -size/2);
+            pCtx.restore();
+            paperTexture.needsUpdate = true;
+        }
+
+        // --- 6. 修复：文件上传逻辑 ---
+        const fileInput = document.getElementById('file-input');
+        const cropModal = document.getElementById('crop-modal');
+        const cropImg = document.getElementById('crop-img');
+        const cropConfirm = document.getElementById('crop-confirm');
+
+        // 点击 upload-box 时手动触发 input
+        document.getElementById('upload-label').addEventListener('click', (e) => {
+            e.preventDefault(); // 防止默认行为干扰
+            fileInput.value = ''; // 关键修复：清空 value，允许重复上传同一张图
+            fileInput.click();
+        });
+
+        fileInput.addEventListener('change', (e) => {
+            if (e.target.files && e.target.files[0]) {
+                const reader = new FileReader();
+                reader.onload = (evt) => {
+                    cropImg.src = evt.target.result;
+                    cropModal.style.display = 'flex';
+                    // 销毁旧的 cropper
+                    if(cropper) { cropper.destroy(); cropper = null; }
+                    
+                    cropper = new Cropper(cropImg, {
+                        aspectRatio: 1, 
+                        viewMode: 1,
+                        autoCropArea: 0.8
+                    });
+                };
+                reader.readAsDataURL(e.target.files[0]);
+            }
+        });
+
+        cropConfirm.addEventListener('click', () => {
+            if(!cropper) return;
+            originalCroppedCanvas = cropper.getCroppedCanvas({
+                width: 1024, height: 1024, imageSmoothingQuality: 'high'
+            });
+            cropModal.style.display = 'none';
+            document.getElementById('preview-container').style.display = 'block';
+            processImage();
+        });
+
+        // --- 7. 其他 ---
+        document.getElementById('clear-btn').addEventListener('click', clearPaper);
+        document.querySelectorAll('.color-swatch').forEach(swatch => {
+            swatch.addEventListener('click', function() {
+                document.querySelectorAll('.color-swatch').forEach(s => s.classList.remove('active'));
+                this.classList.add('active');
+                currentInkColor = this.getAttribute('data-color');
+                processImage();
+            });
+        });
+        document.getElementById('save-btn').addEventListener('click', () => {
+            const link = document.createElement('a');
+            link.download = 'stamp_art.png';
+            link.href = paperCanvas.toDataURL();
+            link.click();
+        });
+
+        clearPaper(); 
+
+        // 关键修复：锁定 OrbitControls
+        const controls = new OrbitControls(camera, renderer.domElement);
+        controls.enableRotate = false; // 禁止旋转
+        controls.enableZoom = true;    // 允许缩放
+        controls.enablePan = true;     // 允许平移（如果你想完全固定，把它也设为 false）
+        controls.minPolarAngle = 0;    // 强制俯视
+        controls.maxPolarAngle = 0;
+
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+            renderer.render(scene, camera);
+        }
+        animate();
+
+        window.addEventListener('resize', () => {
+            camera.aspect = container.offsetWidth / container.offsetHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(container.offsetWidth, container.offsetHeight);
+        });
+
+    </script>
+</body>
+</html>
